@@ -3,28 +3,59 @@
 // calls into the VideoQuizGen global defined here. Deliberately dependency-free
 // so the extension needs no build step.
 (function (global) {
-  const STOPWORDS = new Set(
-    (
-      "a an the and or but if then so because as of at by for with about " +
-      "against between into through during before after above below to from " +
-      "up down in out on off over under again further once here there when " +
-      "where why how all any both each few more most other some such no nor " +
-      "not only own same than too very s t can will just don should now is " +
-      "am are was were be been being have has had having do does did doing " +
-      "i you he she it we they me him her us them my your his its our their " +
-      "this that these those what which who whom im youre hes shes its were " +
-      "theyre ive youve weve theyve id youd hed shed wed theyd ill youll " +
-      "hell shell well theyll gonna wanna gotta yeah okay ok uh um well like"
-    ).split(" ")
-  );
+  // Keyed by ISO 639-1 language code (matched against the caption track's
+  // languageCode prefix, e.g. "ko" from "ko" or "ko-KR"). "en" is the
+  // fallback for any language without a dedicated list — tokenization still
+  // works via Unicode letter matching below, but function-word filtering
+  // will be weaker for languages that aren't English or Korean.
+  const STOPWORDS_BY_LANG = {
+    en: new Set(
+      (
+        "a an the and or but if then so because as of at by for with about " +
+        "against between into through during before after above below to from " +
+        "up down in out on off over under again further once here there when " +
+        "where why how all any both each few more most other some such no nor " +
+        "not only own same than too very s t can will just don should now is " +
+        "am are was were be been being have has had having do does did doing " +
+        "i you he she it we they me him her us them my your his its our their " +
+        "this that these those what which who whom im youre hes shes its were " +
+        "theyre ive youve weve theyve id youd hed shed wed theyd ill youll " +
+        "hell shell well theyll gonna wanna gotta yeah okay ok uh um well like"
+      ).split(" ")
+    ),
+    // Common particles, pronouns, and conjunctions — not exhaustive, but
+    // enough to keep the most frequent Korean function words from being
+    // picked as a quiz blank.
+    ko: new Set(
+      "은 는 이 가 을 를 의 에 에서 에게 께 한테 으로 로 와 과 도 만 까지 부터 " +
+      "마다 조차 밖에 이나 나 랑 이랑 하고 그리고 그러나 하지만 그래서 그런데 " +
+      "그러면 즉 또는 혹은 나 너 저 우리 저희 너희 그 그녀 이것 저것 그것 여기 " +
+      "저기 거기 무엇 어떻게 왜 언제 어디 누구 이제 좀 더 매우 정말 진짜 같이 " +
+      "등 것 수 때 분 점 네 예 아니요 그냥 진짜로 너무 아주".split(" ")
+    ),
+  };
 
-  function normalizeWord(raw) {
-    return raw.replace(/[^A-Za-z']/g, "").toLowerCase();
+  function getStopwords(lang) {
+    const code = (lang || "en").split("-")[0].toLowerCase();
+    return STOPWORDS_BY_LANG[code] || STOPWORDS_BY_LANG.en;
   }
 
-  function isCandidateWord(word) {
+  // Matches Hangul syllables, Hiragana/Katakana, and CJK ideographs — scripts
+  // where a single "word" carries much more meaning per character than in
+  // space-delimited alphabetic scripts, so they need a shorter minimum length.
+  const CJK_RE = /[぀-ヿ㐀-䶿一-鿿가-힣]/;
+
+  function normalizeWord(raw) {
+    // Keep any Unicode letter (not just A-Z) plus apostrophes for contractions.
+    return raw.replace(/[^\p{L}']/gu, "").toLowerCase();
+  }
+
+  function isCandidateWord(word, stopwords) {
     const norm = normalizeWord(word);
-    return norm.length >= 4 && !STOPWORDS.has(norm) && /^[a-z']+$/.test(norm);
+    if (!norm || stopwords.has(norm)) return false;
+    if (!/^[\p{L}']+$/u.test(norm)) return false;
+    const minLength = CJK_RE.test(norm) ? 1 : 4;
+    return norm.length >= minLength;
   }
 
   // Splits a chunk of transcript text into sentence-like units. Auto-generated
@@ -48,11 +79,11 @@
     return chunks;
   }
 
-  function buildWordPool(fullText) {
+  function buildWordPool(fullText, stopwords) {
     const words = fullText.split(/\s+/).filter(Boolean);
     const seen = new Map(); // normalized -> original display form
     for (const w of words) {
-      if (!isCandidateWord(w)) continue;
+      if (!isCandidateWord(w, stopwords)) continue;
       const norm = normalizeWord(w);
       if (!seen.has(norm)) seen.set(norm, norm);
     }
@@ -68,17 +99,29 @@
     return a;
   }
 
-  const FALLBACK_DISTRACTORS = [
-    "house", "water", "friend", "school", "money", "family", "music", "travel",
-    "business", "morning", "weather", "kitchen", "answer", "problem", "picture",
-  ];
+  const FALLBACK_DISTRACTORS_BY_LANG = {
+    en: [
+      "house", "water", "friend", "school", "money", "family", "music", "travel",
+      "business", "morning", "weather", "kitchen", "answer", "problem", "picture",
+    ],
+    ko: [
+      "학교", "친구", "가족", "날씨", "음악", "여행", "사업", "아침",
+      "문제", "사진", "시간", "사람", "생각", "이야기", "마음",
+    ],
+  };
 
-  function pickDistractors(correctNorm, wordPool, count) {
+  function getFallbackDistractors(lang) {
+    const code = (lang || "en").split("-")[0].toLowerCase();
+    return FALLBACK_DISTRACTORS_BY_LANG[code] || FALLBACK_DISTRACTORS_BY_LANG.en;
+  }
+
+  function pickDistractors(correctNorm, wordPool, count, lang) {
     const pool = Array.from(wordPool.keys()).filter((w) => w !== correctNorm);
     const chosen = shuffle(pool).slice(0, count);
+    const fallbackList = getFallbackDistractors(lang);
     let i = 0;
     while (chosen.length < count) {
-      const fallback = FALLBACK_DISTRACTORS[i % FALLBACK_DISTRACTORS.length];
+      const fallback = fallbackList[i % fallbackList.length];
       i++;
       if (fallback !== correctNorm && !chosen.includes(fallback)) {
         chosen.push(fallback);
@@ -88,10 +131,14 @@
     return chosen;
   }
 
-  // Blanks the first whole-word, case-insensitive occurrence of `word` in
-  // `sentence`, preserving the rest of the sentence's original casing.
+  // Blanks the first case-insensitive occurrence of `word` in `sentence` that
+  // isn't part of a larger run of letters/digits, preserving the rest of the
+  // sentence's original casing. Uses lookaround instead of \b because \b is
+  // defined only in terms of ASCII word characters and never matches at the
+  // edges of non-Latin scripts (e.g. Hangul), which would silently fail to
+  // blank anything.
   function blankOutWord(sentence, word) {
-    const re = new RegExp(`\\b${word}\\b`, "i");
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, "iu");
     return sentence.replace(re, "_____");
   }
 
@@ -102,27 +149,31 @@
    *   only to build a larger, more varied distractor word pool)
    * @param {number} numOptions total multiple-choice options including the
    *   correct answer
+   * @param {string} [languageCode] the transcript's caption language (e.g.
+   *   "ko", "en-US") — selects stopword/distractor lists tuned for that
+   *   language when available, defaulting to English otherwise
    * @returns {{sentence: string, correctAnswer: string, options: string[]} | null}
    */
-  function generateQuestion(segmentEntries, fullTranscript, numOptions) {
+  function generateQuestion(segmentEntries, fullTranscript, numOptions, languageCode) {
     numOptions = numOptions || 4;
     const segmentText = segmentEntries.map((e) => e.text).join(" ").trim();
     if (!segmentText) return null;
 
+    const stopwords = getStopwords(languageCode);
     const sentences = shuffle(splitIntoSentences(segmentText));
     const fullText = fullTranscript.map((e) => e.text).join(" ");
-    const wordPool = buildWordPool(fullText);
+    const wordPool = buildWordPool(fullText, stopwords);
 
     for (const sentence of sentences) {
       const words = sentence.split(/\s+/).filter(Boolean);
-      const candidates = words.filter(isCandidateWord);
+      const candidates = words.filter((w) => isCandidateWord(w, stopwords));
       if (candidates.length === 0) continue;
 
       const targetRaw = candidates[Math.floor(Math.random() * candidates.length)];
       const targetNorm = normalizeWord(targetRaw);
       if (!targetNorm) continue;
 
-      const distractors = pickDistractors(targetNorm, wordPool, numOptions - 1);
+      const distractors = pickDistractors(targetNorm, wordPool, numOptions - 1, languageCode);
       const options = shuffle([targetNorm, ...distractors]);
 
       return {

@@ -149,7 +149,8 @@
     const question = window.VideoQuizGen.generateQuestion(
       segment.length ? segment : state.transcript,
       state.transcript,
-      state.settings.numOptions
+      state.settings.numOptions,
+      state.transcriptLanguage
     );
 
     if (!question) {

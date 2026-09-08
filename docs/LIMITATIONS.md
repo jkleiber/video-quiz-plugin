@@ -33,3 +33,11 @@
   speech** — they're just other content words from the same video (or a
   small fallback list), so occasionally a distractor may be an obviously
   wrong part of speech for the blank.
+- **Stopword/distractor lists are only curated for English and Korean.**
+  Tokenization itself is Unicode-aware and works for any script (see
+  [QUIZ_GENERATION.md](QUIZ_GENERATION.md)), but a caption language without a
+  dedicated list falls back to the English stopword list, which won't
+  recognize that language's own function words (particles, articles,
+  pronouns) — so blanks may sometimes land on grammatical glue instead of a
+  content word. Add an entry to `STOPWORDS_BY_LANG` / `FALLBACK_DISTRACTORS_BY_LANG`
+  in `src/lib/quiz.js` to improve quality for another language.

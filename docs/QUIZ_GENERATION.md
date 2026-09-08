@@ -27,13 +27,22 @@ Given the transcript entries spoken since the last quiz:
 2. **Shuffle the candidate sentences** so repeated quizzes on similar content
    don't always pick the first sentence.
 3. **Pick a target word to blank out.** For each sentence (in shuffled
-   order), find words that are: at least 4 letters, alphabetic (contractions
-   like "don't" allowed), and not in a built-in stopword list (articles,
+   order), find words that are: long enough, alphabetic (any Unicode script —
+   contractions like "don't" allowed), and not in a stopword list (articles,
    pronouns, auxiliary verbs, filler words like "um"/"like"). This biases
    the blank toward a content word — a noun, verb, or adjective — rather
    than grammatical glue, which is what a comprehension check should target.
    The first sentence with at least one such candidate wins; one candidate
    word is picked at random from it.
+
+   The minimum length is 4 letters for Latin/Cyrillic/etc. scripts, but 1 for
+   CJK scripts (Hangul, Hiragana/Katakana, Chinese ideographs) detected via
+   Unicode range, since a single Hangul syllable or Han character often
+   carries a full word's worth of meaning. Stopword lists are keyed by the
+   caption track's language code; **English and Korean have curated lists**
+   today, other languages fall back to the English list (tokenization still
+   works, but a target language's own function words won't be filtered out
+   as well — see [LIMITATIONS.md](LIMITATIONS.md)).
 4. **Build distractors.** A word pool is built from the *entire* video
    transcript (not just the current segment) using the same
    length/stopword filter, deduplicated by lowercase form. `numOptions - 1`
