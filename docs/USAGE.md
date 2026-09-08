@@ -43,6 +43,22 @@
    were wrong, your pick is highlighted red. Click **Continue video** to
    resume playback — the interval timer restarts from that point.
 
+## If the popup says captions couldn't be fetched
+
+For some videos, YouTube's direct caption-fetch endpoint returns nothing
+even though the video does have captions (see
+[ARCHITECTURE.md](ARCHITECTURE.md#when-the-timedtext-endpoint-returns-nothing)
+for why). The popup status line will say so and tell you to:
+
+1. Scroll down below the video, click **...more** to expand the description
+   if needed, and click **Show transcript**.
+2. That's it — once YouTube's own transcript panel loads, Video Quiz reads
+   it automatically within a second or two and starts quizzing normally.
+   You can close the panel afterward if you don't want it taking up space.
+
+This has to be a real click — the extension can't trigger this step for you
+automatically.
+
 ## Notes
 
 - Quizzing only starts after 5 seconds of playback and only once the

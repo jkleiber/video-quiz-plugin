@@ -1,5 +1,22 @@
 # Known Limitations
 
+- **The direct caption-fetch endpoint sometimes returns nothing for videos
+  that do have captions.** Confirmed across multiple unrelated videos and
+  caption tracks (auto-generated and not) — YouTube returns HTTP 200 with an
+  empty body from its legacy timedtext endpoint, while its own site can
+  still show the transcript through an internal, authenticated panel API.
+  See [ARCHITECTURE.md](ARCHITECTURE.md#when-the-timedtext-endpoint-returns-nothing)
+  for the full explanation and the DOM-scrape fallback this extension uses
+  to recover — it requires the viewer to manually click YouTube's own "Show
+  transcript" button once (a script-triggered click doesn't work), which the
+  popup status line prompts for when this happens. Until then, quizzing
+  can't start for that video.
+- **The DOM-scrape fallback depends on YouTube's transcript-panel markup**,
+  which has already changed once (`ytd-transcript-segment-renderer` →
+  `transcript-segment-view-model` with opaque/hashed class names — see
+  ARCHITECTURE.md) and matches structurally (element position/content shape)
+  rather than by class name to reduce — but not eliminate — fragility to
+  future changes.
 - **Requires captions.** Videos with no caption track at all (not even
   auto-generated, and not offered as a machine-translation target — see
   [ARCHITECTURE.md](ARCHITECTURE.md#translated-captions)) can't be quizzed —

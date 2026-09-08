@@ -19,7 +19,9 @@
     transcript: null, // [{start, end, text}]
     transcriptLanguage: null,
     transcriptTranslated: false, // true if machine-translated via &tlang=
-    transcriptStatus: "idle", // idle | loading | ready | no-captions | error
+    transcriptSource: null, // "fetch" | "dom-scrape"
+    // idle | loading | ready | no-captions | empty | error
+    transcriptStatus: "idle",
     video: null,
     lastQuizVideoTime: 0,
     quizActive: false,
@@ -53,6 +55,7 @@
         transcriptStatus: state.transcriptStatus,
         transcriptLanguage: state.transcriptLanguage,
         transcriptTranslated: state.transcriptTranslated,
+        transcriptSource: state.transcriptSource,
         numSegments: state.transcript ? state.transcript.length : 0,
         enabled: state.settings.enabled,
       });
@@ -103,13 +106,24 @@
     state.transcriptStatus = "loading";
     fetchTranscript(track.baseUrl, tlang)
       .then((entries) => {
-        state.transcript = entries;
-        state.transcriptLanguage = tlang || track.languageCode;
-        state.transcriptTranslated = !!tlang;
-        state.transcriptStatus = entries.length ? "ready" : "no-captions";
+        if (entries.length) {
+          state.transcript = entries;
+          state.transcriptLanguage = tlang || track.languageCode;
+          state.transcriptTranslated = !!tlang;
+          state.transcriptSource = "fetch";
+          state.transcriptStatus = "ready";
+        } else {
+          // YouTube can return HTTP 200 with a genuinely empty body for a
+          // track that does exist — this isn't the same as "no captions at
+          // all" (see startTranscriptFallbackWatcher below for how we try
+          // to recover from it).
+          state.transcriptStatus = "empty";
+          startTranscriptFallbackWatcher();
+        }
       })
       .catch(() => {
         state.transcriptStatus = "error";
+        startTranscriptFallbackWatcher();
       });
   }
 
@@ -129,6 +143,87 @@
       entries.push({ start, end: start + duration, text });
     }
     return entries;
+  }
+
+  // ---------- transcript-panel DOM fallback ----------
+  //
+  // YouTube's public timedtext endpoint (used above) sometimes returns HTTP
+  // 200 with an empty body for a track that genuinely exists and that
+  // YouTube's own "Show transcript" panel can still display — this appears
+  // to be a platform-side restriction on that legacy endpoint, not anything
+  // specific to a video or caption language. The panel itself fetches
+  // through an authenticated, session-bound API we deliberately don't
+  // replicate. Instead, if the viewer opens that panel themselves (a real
+  // click — a script-triggered one doesn't trigger YouTube's handler), we
+  // read the transcript straight out of the resulting DOM.
+
+  let transcriptFallbackObserver = null;
+
+  function parseTimestampToSeconds(text) {
+    const parts = text.trim().split(":").map(Number);
+    if (!parts.length || parts.some((p) => Number.isNaN(p))) return null;
+    return parts.reduce((acc, p) => acc * 60 + p, 0);
+  }
+
+  function scrapeTranscriptPanel() {
+    // YouTube has shipped at least two different transcript-panel markups:
+    // the older Polymer <ytd-transcript-segment-renderer> (with dedicated
+    // "timestamp"/"segment-text" classes) and a newer
+    // <transcript-segment-view-model> whose class names are opaque/hashed
+    // (a Tailwind-like atomic build), where the timestamp and caption text
+    // are just plain child <div>/<span> elements distinguished only by
+    // position and content shape. We match structurally so this survives
+    // either markup, since we can't rely on the newer one's class names.
+    const nodes = document.querySelectorAll(
+      "transcript-segment-view-model, ytd-transcript-segment-renderer"
+    );
+    if (!nodes.length) return null;
+
+    const entries = [];
+    nodes.forEach((node) => {
+      const directDivs = Array.from(node.querySelectorAll(":scope > div"));
+      const timestampDiv = directDivs.find((d) => /^\d{1,2}(:\d{2}){1,2}$/.test(d.textContent.trim()));
+      let start = timestampDiv ? parseTimestampToSeconds(timestampDiv.textContent) : null;
+      let text = (node.querySelector("span") || {}).textContent || "";
+
+      if (start == null) {
+        const tsEl = node.querySelector('[class*="timestamp"]');
+        start = tsEl ? parseTimestampToSeconds(tsEl.textContent) : null;
+      }
+      if (!text) {
+        const textEl = node.querySelector('[class*="segment-text"]');
+        text = textEl ? textEl.textContent : node.textContent;
+      }
+
+      text = text.replace(/\s+/g, " ").trim();
+      if (text && start != null) entries.push({ start, end: start, text });
+    });
+    return entries.length ? entries : null;
+  }
+
+  function stopTranscriptFallbackWatcher() {
+    if (transcriptFallbackObserver) {
+      transcriptFallbackObserver.disconnect();
+      transcriptFallbackObserver = null;
+    }
+  }
+
+  function startTranscriptFallbackWatcher() {
+    if (transcriptFallbackObserver) return; // already watching
+    transcriptFallbackObserver = new MutationObserver(() => {
+      const entries = scrapeTranscriptPanel();
+      if (!entries) return;
+      state.transcript = entries;
+      state.transcriptSource = "dom-scrape";
+      // The panel doesn't tell us which language it's showing; the
+      // configured preferred language is the best guess available (the
+      // viewer likely opened the panel because that's what they expected
+      // to see) — used only to pick a stopword list for quiz generation.
+      state.transcriptLanguage = state.transcriptLanguage || state.settings.preferredLanguage || null;
+      state.transcriptStatus = "ready";
+      stopTranscriptFallbackWatcher();
+    });
+    transcriptFallbackObserver.observe(document.body, { childList: true, subtree: true });
   }
 
   // ---------- video discovery + playback watching ----------
@@ -257,8 +352,10 @@
     state.transcript = null;
     state.transcriptLanguage = null;
     state.transcriptTranslated = false;
+    state.transcriptSource = null;
     state.transcriptStatus = "idle";
     state.lastQuizVideoTime = 0;
+    stopTranscriptFallbackWatcher();
     if (state.overlayEl) {
       state.overlayEl.remove();
       state.overlayEl = null;

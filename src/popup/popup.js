@@ -49,7 +49,9 @@ function renderStatus(response) {
       lines.push(
         `Transcript loaded (${response.numSegments} segments${
           response.transcriptLanguage ? ", lang: " + response.transcriptLanguage : ""
-        }${response.transcriptTranslated ? ", machine-translated" : ""}).`
+        }${response.transcriptTranslated ? ", machine-translated" : ""}${
+          response.transcriptSource === "dom-scrape" ? ", read from transcript panel" : ""
+        }).`
       );
       break;
     case "loading":
@@ -58,8 +60,13 @@ function renderStatus(response) {
     case "no-captions":
       lines.push("No captions available for this video — quizzes can't be generated.");
       break;
+    case "empty":
     case "error":
-      lines.push("Couldn't load the transcript for this video.");
+      lines.push(
+        "This video has captions, but YouTube didn't return them to the extension directly " +
+          "(this happens for some videos). Click the ⋯ under the video, expand the " +
+          '"Show transcript" panel once yourself, and Video Quiz will pick it up automatically.'
+      );
       break;
     default:
       lines.push("Waiting for video data…");

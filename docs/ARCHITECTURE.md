@@ -49,7 +49,9 @@ to extension APIs) and never fetches anything itself.
 
    It then fetches `<baseUrl>&fmt=json3[&tlang=<code>]` — YouTube's own
    timedtext endpoint — to get the transcript as JSON: a list of
-   `{start, end, text}` entries.
+   `{start, end, text}` entries. If that fetch comes back empty (see
+   "When the timedtext endpoint returns nothing" below), a DOM-scrape
+   fallback takes over instead.
 3. `content.js` attaches a `timeupdate` listener to the `<video>` element. On
    each tick it checks how much video time has elapsed since the last quiz;
    once that exceeds the configured interval, it slices the transcript
@@ -78,6 +80,52 @@ machine translation of (often already imperfect) auto-generated captions.
 The popup surfaces this by appending "machine-translated" to the status line
 when it happens, so it's clear the transcript — and therefore the quiz
 sentences — may contain translation artifacts.
+
+## When the timedtext endpoint returns nothing
+
+The direct timedtext fetch (step 2 above) is a legacy, unauthenticated
+YouTube endpoint. In testing, it reliably returned **HTTP 200 with a
+completely empty body** for some caption tracks — reproduced across multiple
+unrelated videos and both auto-generated and non-auto-generated tracks, in
+every response format the endpoint supports (`json3`, `srv1`, `srv3`, `vtt`,
+and the plain default). YouTube's own site can still display the transcript
+for these videos, but only through its "Show transcript" panel, which is
+backed by a different, session-authenticated internal API
+(`youtubei/v1/get_panel`) that isn't something this extension replicates —
+doing so would mean reverse-engineering and re-signing an authenticated,
+undocumented endpoint, which is both fragile (liable to break without
+notice) and not something to build against another product's private API.
+
+Instead, `content.js` falls back to reading the transcript out of the DOM
+*after* the viewer opens YouTube's real "Show transcript" panel themselves:
+
+- When a fetch returns zero entries (`transcriptStatus = "empty"`) or throws
+  (`"error"`), `startTranscriptFallbackWatcher()` attaches a `MutationObserver`
+  to `document.body`.
+- Note that a **script-triggered click on YouTube's "Show transcript" button
+  does not open the panel** — this was tested directly and the panel stayed
+  closed, so the extension cannot trigger this itself. The popup's status
+  line tells the viewer to open it manually instead (a normal, single click).
+- Once the viewer does, YouTube populates the panel with transcript
+  segments, and the observer's callback calls `scrapeTranscriptPanel()`,
+  which reads `{start, text}` out of each segment element and, on success,
+  disconnects the observer and marks the transcript ready
+  (`transcriptSource = "dom-scrape"`).
+- `scrapeTranscriptPanel()` matches two known markups structurally rather
+  than by class name, because the newer one's classes are opaque/hashed
+  (an atomic-CSS build) and carry no semantic meaning to select on:
+  - legacy `<ytd-transcript-segment-renderer>`, which has dedicated
+    `[class*="timestamp"]` / `[class*="segment-text"]` elements;
+  - current `<transcript-segment-view-model>`, where a segment is a plain
+    `<div>` (short timestamp, e.g. `"0:41"`) + another `<div>` (a duplicate
+    accessibility label, e.g. `"41 seconds"`, deliberately skipped) + a
+    `<span>` (the caption text) — matched by picking the direct-child `<div>`
+    whose text matches `H:MM:SS`/`M:SS` as the timestamp, and the segment's
+    `<span>` as the text.
+
+This fallback is deliberately last-resort and manual-assist rather than
+automatic, since it depends on markup that could change and on the viewer
+taking one extra action — see [LIMITATIONS.md](LIMITATIONS.md).
 
 ## Settings and state
 
