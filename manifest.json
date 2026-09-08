@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Video Quiz for YouTube — Language Learning",
+  "version": "0.1.0",
+  "description": "Pauses YouTube videos at regular intervals and quizzes you on the transcript to check listening comprehension while learning a language.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://www.youtube.com/*"],
+  "background": {
+    "service_worker": "src/background/background.js"
+  },
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_title": "Video Quiz"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["src/content/extract-captions.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/watch*"],
+      "js": ["src/lib/quiz.js", "src/content/content.js"],
+      "css": ["src/content/overlay.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

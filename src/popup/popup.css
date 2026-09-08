@@ -1,0 +1,50 @@
+body {
+  width: 280px;
+  font-family: Arial, sans-serif;
+  padding: 14px;
+  color: #202020;
+}
+
+h1 {
+  font-size: 15px;
+  margin: 0 0 12px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+  font-size: 13px;
+}
+
+.row input[type="checkbox"] {
+  align-self: flex-start;
+}
+
+select,
+input[type="text"] {
+  padding: 5px;
+  font-size: 13px;
+}
+
+button#save {
+  width: 100%;
+  padding: 8px;
+  background: #3ea6ff;
+  border: none;
+  border-radius: 6px;
+  color: #0f0f0f;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.status {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #555;
+  border-top: 1px solid #ddd;
+  padding-top: 8px;
+  white-space: pre-line;
+}

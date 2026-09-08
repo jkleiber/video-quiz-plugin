@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Video Quiz</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <h1>Video Quiz</h1>
+
+    <label class="row">
+      <span>Enabled</span>
+      <input type="checkbox" id="enabled" />
+    </label>
+
+    <label class="row">
+      <span>Quiz interval</span>
+      <select id="intervalSeconds">
+        <option value="30">Every 30 seconds</option>
+        <option value="60">Every 1 minute</option>
+        <option value="90">Every 1.5 minutes</option>
+        <option value="120">Every 2 minutes</option>
+        <option value="300">Every 5 minutes</option>
+      </select>
+    </label>
+
+    <label class="row">
+      <span>Choices per question</span>
+      <select id="numOptions">
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5">5</option>
+      </select>
+    </label>
+
+    <label class="row">
+      <span>Caption language code (optional)</span>
+      <input type="text" id="preferredLanguage" placeholder="e.g. es, fr, ja" />
+    </label>
+
+    <button id="save">Save</button>
+
+    <div id="status" class="status"></div>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
