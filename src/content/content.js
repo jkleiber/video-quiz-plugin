@@ -254,16 +254,25 @@
       (e) => e.start >= state.lastQuizVideoTime && e.start <= video.currentTime
     );
 
+    if (!segment.length) {
+      // Nothing was actually said since the last quiz (e.g. music/silence)
+      // — never fall back to the full transcript, or the question could be
+      // about content the viewer hasn't reached yet, or already covered.
+      state.lastQuizVideoTime = video.currentTime;
+      return;
+    }
+
     const question = window.VideoQuizGen.generateQuestion(
-      segment.length ? segment : state.transcript,
+      segment,
       state.transcript,
       state.settings.numOptions,
       state.transcriptLanguage
     );
 
     if (!question) {
-      // Not enough material in this window (e.g. mostly music/silence);
-      // don't stall forever waiting for a quiz that can't be built.
+      // The played window had transcript text but nothing quizzable in it
+      // (e.g. only filler words); don't stall waiting for a quiz that can't
+      // be built from that window.
       state.lastQuizVideoTime = video.currentTime;
       return;
     }
