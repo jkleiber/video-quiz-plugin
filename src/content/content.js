@@ -11,6 +11,9 @@
     intervalSeconds: 90,
     numOptions: 4,
     preferredLanguage: "", // empty = use first available caption track
+    maxQuestions: 0, // 0 = unlimited per video
+    questionTypes: ["cloze", "definition"],
+    definitionLanguage: "en", // language word-meaning answers are shown in
   };
 
   const state = {
@@ -25,7 +28,10 @@
     video: null,
     lastQuizVideoTime: 0,
     quizActive: false,
+    quizPending: false, // a question is being generated (may involve an async lookup)
     overlayEl: null,
+    score: { correct: 0, total: 0 },
+    summaryShown: false,
   };
 
   // ---------- settings ----------
@@ -58,6 +64,7 @@
         transcriptSource: state.transcriptSource,
         numSegments: state.transcript ? state.transcript.length : 0,
         enabled: state.settings.enabled,
+        score: state.score,
       });
     }
     return true;
@@ -237,15 +244,25 @@
     if (!video || video === state.video) return;
     state.video = video;
     video.addEventListener("timeupdate", onTimeUpdate);
+    video.addEventListener("ended", onVideoEnded);
+  }
+
+  function onVideoEnded() {
+    if (state.score.total > 0 && !state.summaryShown) {
+      showSessionSummary("ended");
+    }
   }
 
   function onTimeUpdate() {
     const video = state.video;
     if (!video) return;
     if (!state.settings.enabled) return;
-    if (state.quizActive) return;
+    if (state.quizActive || state.quizPending) return;
     if (state.transcriptStatus !== "ready") return;
     if (video.currentTime < 5) return;
+
+    const cap = state.settings.maxQuestions;
+    if (cap > 0 && state.score.total >= cap) return; // session's question limit already reached
 
     const elapsedSinceLastQuiz = video.currentTime - state.lastQuizVideoTime;
     if (elapsedSinceLastQuiz < state.settings.intervalSeconds) return;
@@ -262,22 +279,121 @@
       return;
     }
 
-    const question = window.VideoQuizGen.generateQuestion(
+    state.quizPending = true;
+    buildQuestion(segment)
+      .then((question) => {
+        if (!question) {
+          // The played window had transcript text but nothing quizzable in
+          // it (e.g. only filler words); don't stall waiting for a quiz
+          // that can't be built from that window.
+          state.lastQuizVideoTime = video.currentTime;
+          return;
+        }
+        showQuiz(question);
+      })
+      .finally(() => {
+        state.quizPending = false;
+      });
+  }
+
+  // ---------- question generation (both types) ----------
+
+  function pickQuestionType() {
+    const types = state.settings.questionTypes && state.settings.questionTypes.length
+      ? state.settings.questionTypes
+      : ["cloze"];
+    return types[Math.floor(Math.random() * types.length)];
+  }
+
+  async function buildQuestion(segment) {
+    const type = pickQuestionType();
+    if (type === "definition") {
+      const question = await tryBuildDefinitionQuestion(segment);
+      if (question) return question;
+      // Translation lookup failed (network error, rate limit, etc.) — fall
+      // back to a fill-in-the-blank question instead of skipping the round.
+    }
+    return window.VideoQuizGen.generateClozeQuestion(
       segment,
       state.transcript,
       state.settings.numOptions,
       state.transcriptLanguage
     );
+  }
 
-    if (!question) {
-      // The played window had transcript text but nothing quizzable in it
-      // (e.g. only filler words); don't stall waiting for a quiz that can't
-      // be built from that window.
-      state.lastQuizVideoTime = video.currentTime;
-      return;
+  const translationCache = new Map(); // "word|target|source" -> Promise<string>
+
+  function translateWord(word, targetLang, sourceLang) {
+    const key = `${word}|${targetLang}|${sourceLang}`;
+    if (!translationCache.has(key)) {
+      translationCache.set(
+        key,
+        new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage(
+            { type: "TRANSLATE_WORD", word, targetLang, sourceLang },
+            (response) => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+              } else if (!response || response.error) {
+                reject(new Error((response && response.error) || "no response"));
+              } else {
+                resolve(response.translated);
+              }
+            }
+          );
+        }).catch((err) => {
+          translationCache.delete(key); // don't cache failures — worth retrying later
+          throw err;
+        })
+      );
     }
+    return translationCache.get(key);
+  }
 
-    showQuiz(question);
+  async function tryBuildDefinitionQuestion(segment) {
+    const pick = window.VideoQuizGen.pickQuizWord(
+      segment,
+      state.transcript,
+      state.transcriptLanguage,
+      state.settings.numOptions - 1
+    );
+    if (!pick) return null;
+
+    const targetLang = state.settings.definitionLanguage || "en";
+    const sourceLang = state.transcriptLanguage || "auto";
+
+    // translate.googleapis.com is an unofficial endpoint and individual
+    // lookups fail routinely (rate limits, transient errors). Use
+    // allSettled rather than Promise.all so one failed distractor doesn't
+    // sink the whole question when the main word and other distractors came
+    // back fine — we just end up with fewer (but still valid) options.
+    const words = [pick.word, ...pick.distractorWords];
+    const results = await Promise.allSettled(words.map((w) => translateWord(w, targetLang, sourceLang)));
+
+    const correctResult = results[0];
+    if (correctResult.status !== "fulfilled" || !correctResult.value) return null;
+    const correctMeaning = correctResult.value;
+
+    const seen = new Set([correctMeaning.toLowerCase()]);
+    const uniqueDistractors = [];
+    for (let i = 1; i < results.length; i++) {
+      const r = results[i];
+      if (r.status !== "fulfilled" || !r.value) continue;
+      const key = r.value.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueDistractors.push(r.value);
+      }
+    }
+    if (!uniqueDistractors.length) return null; // need at least one real alternative to quiz against
+
+    return {
+      type: "definition",
+      sentence: pick.sentence,
+      word: pick.word,
+      correctAnswer: correctMeaning,
+      options: window.VideoQuizGen.shuffle([correctMeaning, ...uniqueDistractors]),
+    };
   }
 
   // ---------- quiz overlay ----------
@@ -290,6 +406,21 @@
     );
   }
 
+  function renderSentenceWithUnderline(container, sentence, word) {
+    const match = window.VideoQuizGen.findWordMatch(sentence, word);
+    container.textContent = "";
+    if (!match) {
+      container.textContent = sentence;
+      return;
+    }
+    container.appendChild(document.createTextNode(sentence.slice(0, match.index)));
+    const u = document.createElement("u");
+    u.className = "vqp-underline";
+    u.textContent = match.text;
+    container.appendChild(u);
+    container.appendChild(document.createTextNode(sentence.slice(match.index + match.text.length)));
+  }
+
   function showQuiz(question) {
     state.quizActive = true;
     state.video.pause();
@@ -299,14 +430,22 @@
     overlay.className = "vqp-overlay";
     overlay.innerHTML = `
       <div class="vqp-card">
-        <div class="vqp-title">Comprehension check</div>
+        <div class="vqp-title"></div>
         <div class="vqp-sentence"></div>
         <div class="vqp-options"></div>
         <div class="vqp-feedback" hidden></div>
         <button class="vqp-continue" hidden>Continue video</button>
       </div>
     `;
-    overlay.querySelector(".vqp-sentence").textContent = question.sentence;
+    overlay.querySelector(".vqp-title").textContent =
+      question.type === "definition" ? "What does the underlined word mean?" : "Comprehension check";
+
+    const sentenceEl = overlay.querySelector(".vqp-sentence");
+    if (question.type === "definition") {
+      renderSentenceWithUnderline(sentenceEl, question.sentence, question.word);
+    } else {
+      sentenceEl.textContent = question.sentence;
+    }
 
     const optionsEl = overlay.querySelector(".vqp-options");
     const feedbackEl = overlay.querySelector(".vqp-feedback");
@@ -321,6 +460,9 @@
         Array.from(optionsEl.children).forEach((b) => (b.disabled = true));
 
         const isCorrect = option === question.correctAnswer;
+        state.score.total += 1;
+        if (isCorrect) state.score.correct += 1;
+
         btn.classList.add(isCorrect ? "vqp-correct" : "vqp-incorrect");
         if (!isCorrect) {
           Array.from(optionsEl.children)
@@ -328,9 +470,9 @@
             ?.classList.add("vqp-correct");
         }
 
-        feedbackEl.textContent = isCorrect
-          ? "Correct!"
-          : `Not quite — the answer was "${question.correctAnswer}".`;
+        feedbackEl.textContent =
+          (isCorrect ? "Correct!" : `Not quite — the answer was "${question.correctAnswer}".`) +
+          ` Score: ${state.score.correct}/${state.score.total}`;
         feedbackEl.hidden = false;
         continueBtn.hidden = false;
         continueBtn.focus();
@@ -351,7 +493,42 @@
     state.overlayEl = null;
     state.quizActive = false;
     state.lastQuizVideoTime = state.video.currentTime;
-    state.video.play();
+
+    const cap = state.settings.maxQuestions;
+    if (cap > 0 && state.score.total >= cap && !state.summaryShown) {
+      showSessionSummary("cap"); // stays paused until the summary is closed
+    } else {
+      state.video.play();
+    }
+  }
+
+  function showSessionSummary(reason) {
+    state.summaryShown = true;
+    const container = findPlayerContainer();
+    const pct = state.score.total ? Math.round((state.score.correct / state.score.total) * 100) : 0;
+
+    const overlay = document.createElement("div");
+    overlay.className = "vqp-overlay";
+    overlay.innerHTML = `
+      <div class="vqp-card">
+        <div class="vqp-title">Quiz session complete</div>
+        <div class="vqp-summary-score"></div>
+        <div class="vqp-summary-reason"></div>
+        <button class="vqp-continue">Close</button>
+      </div>
+    `;
+    overlay.querySelector(".vqp-summary-score").textContent =
+      `${state.score.correct} / ${state.score.total} correct (${pct}%)`;
+    overlay.querySelector(".vqp-summary-reason").textContent =
+      reason === "cap"
+        ? "You've reached this session's question limit."
+        : "You've reached the end of the video.";
+    overlay.querySelector(".vqp-continue").addEventListener("click", () => {
+      overlay.remove();
+      if (reason === "cap") state.video.play(); // was paused so the viewer could read the summary
+    });
+
+    container.appendChild(overlay);
   }
 
   // ---------- SPA navigation handling ----------
@@ -370,8 +547,12 @@
       state.overlayEl = null;
     }
     state.quizActive = false;
+    state.quizPending = false;
+    state.score = { correct: 0, total: 0 };
+    state.summaryShown = false;
     if (state.video) {
       state.video.removeEventListener("timeupdate", onTimeUpdate);
+      state.video.removeEventListener("ended", onVideoEnded);
       state.video = null;
     }
     window.postMessage({ source: SOURCE, type: "REQUEST_CAPTION_TRACKS" }, "*");

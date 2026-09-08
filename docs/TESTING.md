@@ -9,7 +9,21 @@
   was pretty good i guess"), and an empty segment. It correctly picked
   reasonable content-word blanks (including Unicode/Korean text), built
   plausible distractors, and returned `null` (rather than throwing or
-  hanging) when no usable content was in the segment.
+  hanging) when no usable content was in the segment. After the refactor
+  that split this into `pickQuizWord` (shared) + `generateClozeQuestion`
+  (cloze-specific) to support the word-meaning question type, this was
+  re-run and produced identical, correct results.
+- **The translation endpoint** (`translate.googleapis.com`'s "gtx" API used
+  for "Word meaning" questions) was tested directly — both from a plain
+  Node `fetch()` and by navigating an actual Chrome browser tab straight to
+  the endpoint URL. Every attempt, from two different automated
+  environments, returned an error (HTTP 429 from one, HTTP 503 from the
+  other) rather than a translation, regardless of the word queried. This
+  means **the word-meaning question type's core network call was never
+  observed to succeed** in this session — see
+  [LIMITATIONS.md](LIMITATIONS.md) for what that means in practice, and
+  why the code treats every lookup as likely-to-fail (allSettled, cache
+  only successes, always have a cloze fallback).
 - **Live YouTube behavior** was checked directly in a real Chrome browser
   (via browser automation) against multiple real videos, which is how the
   DOM-scrape fallback in `content.js`/`scrapeTranscriptPanel()` was
@@ -55,5 +69,22 @@ as a Chrome extension). Worth checking by hand:
 3. **`yt-navigate-finish` still fires** when clicking a related video without
    a full page reload (confirms per-video state, including the fallback
    watcher, resets correctly between videos).
+4. **"Word meaning" questions actually appearing end-to-end**: whether
+   `background.js`'s `TRANSLATE_WORD` message handler successfully reaches
+   and gets a real answer from `translate.googleapis.com` from an ordinary
+   (non-automated) browser session — this session could only confirm the
+   endpoint failing, not succeeding, so the whole path from "pick word" to
+   "underlined word + translated multiple choice rendered on screen" is
+   unverified live. If it never succeeds even from a normal browser, the
+   extension should still work fine (silent fallback to cloze), just never
+   actually show a "Word meaning" question.
+5. **Score tracking and session limits**: answering several questions and
+   confirming the running score in the feedback line and popup match;
+   setting "Questions per video" to a small number (e.g. 5) and confirming
+   quizzing stops and a summary appears after the 5th; confirming a summary
+   also appears when a (short, unlimited-cap) video reaches its natural end.
+6. **Popup's question-type checkboxes**: confirming at least one always
+   stays checked, and that the "Show meanings in" field hides/shows based
+   on the "Word meaning" checkbox.
 
 See [USAGE.md](USAGE.md) for the install/use steps to check these yourself.

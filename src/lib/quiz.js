@@ -131,31 +131,42 @@
     return chosen;
   }
 
-  // Blanks the first case-insensitive occurrence of `word` in `sentence` that
-  // isn't part of a larger run of letters/digits, preserving the rest of the
-  // sentence's original casing. Uses lookaround instead of \b because \b is
-  // defined only in terms of ASCII word characters and never matches at the
-  // edges of non-Latin scripts (e.g. Hangul), which would silently fail to
-  // blank anything.
-  function blankOutWord(sentence, word) {
+  // Finds the first case-insensitive occurrence of `word` in `sentence` that
+  // isn't part of a larger run of letters/digits. Uses lookaround instead of
+  // \b because \b is defined only in terms of ASCII word characters and
+  // never matches at the edges of non-Latin scripts (e.g. Hangul), which
+  // would silently fail to match anything.
+  function findWordMatch(sentence, word) {
     const re = new RegExp(`(?<![\\p{L}\\p{N}])${word}(?![\\p{L}\\p{N}])`, "iu");
-    return sentence.replace(re, "_____");
+    const m = re.exec(sentence);
+    return m ? { index: m.index, text: m[0] } : null;
+  }
+
+  // Blanks out the first occurrence of `word` in `sentence` (see
+  // findWordMatch), preserving the rest of the sentence's original casing.
+  function blankOutWord(sentence, word) {
+    const match = findWordMatch(sentence, word);
+    if (!match) return sentence;
+    return sentence.slice(0, match.index) + "_____" + sentence.slice(match.index + match.text.length);
   }
 
   /**
+   * Picks one quizzable word out of the transcript segment spoken since the
+   * last quiz, plus distractor words drawn from the wider transcript.
+   * Shared by both question types (fill-in-the-blank and word-meaning) so
+   * they draw from the same underlying selection logic.
+   *
    * @param {{text: string}[]} segmentEntries transcript entries spoken since
    *   the last quiz (defines which sentence the question is drawn from)
    * @param {{text: string}[]} fullTranscript entire video transcript (used
    *   only to build a larger, more varied distractor word pool)
-   * @param {number} numOptions total multiple-choice options including the
-   *   correct answer
    * @param {string} [languageCode] the transcript's caption language (e.g.
-   *   "ko", "en-US") — selects stopword/distractor lists tuned for that
+   *   "ko", "en-US") — selects a stopword/distractor list tuned for that
    *   language when available, defaulting to English otherwise
-   * @returns {{sentence: string, correctAnswer: string, options: string[]} | null}
+   * @param {number} numDistractors how many distractor words to return
+   * @returns {{sentence: string, word: string, distractorWords: string[]} | null}
    */
-  function generateQuestion(segmentEntries, fullTranscript, numOptions, languageCode) {
-    numOptions = numOptions || 4;
+  function pickQuizWord(segmentEntries, fullTranscript, languageCode, numDistractors) {
     const segmentText = segmentEntries.map((e) => e.text).join(" ").trim();
     if (!segmentText) return null;
 
@@ -173,17 +184,32 @@
       const targetNorm = normalizeWord(targetRaw);
       if (!targetNorm) continue;
 
-      const distractors = pickDistractors(targetNorm, wordPool, numOptions - 1, languageCode);
-      const options = shuffle([targetNorm, ...distractors]);
-
       return {
-        sentence: blankOutWord(sentence, targetNorm),
-        correctAnswer: targetNorm,
-        options,
+        sentence,
+        word: targetNorm,
+        distractorWords: pickDistractors(targetNorm, wordPool, numDistractors, languageCode),
       };
     }
     return null;
   }
 
-  global.VideoQuizGen = { generateQuestion };
+  /**
+   * @param {number} numOptions total multiple-choice options including the
+   *   correct answer
+   * @returns {{type: "cloze", sentence: string, correctAnswer: string, options: string[]} | null}
+   */
+  function generateClozeQuestion(segmentEntries, fullTranscript, numOptions, languageCode) {
+    numOptions = numOptions || 4;
+    const pick = pickQuizWord(segmentEntries, fullTranscript, languageCode, numOptions - 1);
+    if (!pick) return null;
+
+    return {
+      type: "cloze",
+      sentence: blankOutWord(pick.sentence, pick.word),
+      correctAnswer: pick.word,
+      options: shuffle([pick.word, ...pick.distractorWords]),
+    };
+  }
+
+  global.VideoQuizGen = { generateClozeQuestion, pickQuizWord, findWordMatch, shuffle };
 })(window);

@@ -31,17 +31,37 @@
      artifacts. Leave blank to let the extension pick automatically (it
      prefers a human-written track over an auto-generated one when both
      exist, no translation attempted).
+   - **Questions per video** — cap on how many quizzes are asked per video
+     (5/10/15/20, or Unlimited). Once reached, quizzing stops for the rest
+     of that video and a score summary is shown.
+   - **Question types** — enable "Fill in the blank", "Word meaning", or
+     both (at least one stays checked; unchecking the last one re-checks
+     it). When both are on, each round randomly picks one. "Word meaning"
+     underlines a word in its sentence and asks you to pick its correct
+     translation from multiple choice — it needs a network lookup (see
+     below), so if that lookup fails for a given round, that round falls
+     back to "Fill in the blank" instead of skipping the quiz.
+   - **Show meanings in (language code)** — only shown when "Word meaning"
+     is enabled; the language "Word meaning" answers are translated into
+     (default `en`). Set this to your *native* language, not your target
+     one — e.g. if you're learning Korean, leave this as `en` (or your own
+     native language) so the meanings are things you can actually read.
    - The status line at the bottom reports whether a transcript was found
-     for the current video, how many segments it has, and whether it's a
-     machine-translated one.
+     for the current video, how many segments it has, whether it's a
+     machine-translated one, and your running score for the video once
+     you've answered at least one question.
 3. Click **Save**. Settings apply immediately, without reloading the page.
 4. Play the video normally. When the configured interval elapses, the video
-   pauses and a question card appears over the player: a sentence from what
-   was just said, with one word blanked out, and multiple-choice options to
-   fill it in.
+   pauses and a question card appears over the player: either a sentence
+   from what was just said with one word blanked out, or that same sentence
+   with a word underlined and multiple-choice translations of its meaning.
 5. Pick an answer. The correct answer is highlighted (green) and, if you
-   were wrong, your pick is highlighted red. Click **Continue video** to
-   resume playback — the interval timer restarts from that point.
+   were wrong, your pick is highlighted red; the feedback line also shows
+   your running score for the video. Click **Continue video** to resume
+   playback — the interval timer restarts from that point.
+6. When you reach the end of the video, or the "Questions per video" cap
+   (whichever comes first), a **quiz session complete** summary shows your
+   final score and percentage for that video.
 
 ## If the popup says captions couldn't be fetched
 
@@ -59,6 +79,16 @@ for why). The popup status line will say so and tell you to:
 This has to be a real click — the extension can't trigger this step for you
 automatically.
 
+## If "Word meaning" questions rarely or never appear
+
+The meaning lookup relies on an unofficial, undocumented Google endpoint
+that has no uptime guarantee — see
+[QUIZ_GENERATION.md](QUIZ_GENERATION.md#word-meaning-question-type). When it
+fails, the extension silently falls back to "Fill in the blank" for that
+round rather than showing an error, so this can look like the setting isn't
+doing anything. There's nothing to fix on your end; if it's persistent,
+turning "Word meaning" off in the popup avoids the wasted lookup attempts.
+
 ## Notes
 
 - Quizzing only starts after 5 seconds of playback and only once the
@@ -67,3 +97,6 @@ automatically.
   will be generated for it.
 - Settings are shared across all videos/tabs (via `chrome.storage.sync`),
   not per-video.
+- Score is tracked per video, in memory only — reloading the page or
+  navigating away and back resets it to 0/0. See
+  [LIMITATIONS.md](LIMITATIONS.md).

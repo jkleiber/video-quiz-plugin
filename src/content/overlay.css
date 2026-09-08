@@ -92,3 +92,23 @@
 .vqp-continue:hover {
   background: #65b8ff;
 }
+
+.vqp-underline {
+  text-decoration: underline;
+  text-decoration-color: #3ea6ff;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  font-weight: 700;
+}
+
+.vqp-summary-score {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.vqp-summary-reason {
+  font-size: 14px;
+  color: #ccc;
+  margin-bottom: 20px;
+}

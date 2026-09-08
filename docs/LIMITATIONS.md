@@ -1,5 +1,30 @@
 # Known Limitations
 
+- **The "Word meaning" question type depends on an unofficial, rate-limited
+  translation endpoint.** `translate.googleapis.com`'s "gtx" endpoint has no
+  API key, no documented SLA, and no official support — during development
+  it returned HTTP 429 ("Sorry...", Google's abuse page) from one automated
+  environment and HTTP 503 from another, on every query tried. It may behave
+  better from an ordinary residential browser session, but there's no
+  guarantee. Failures are handled gracefully (see
+  [QUIZ_GENERATION.md](QUIZ_GENERATION.md#word-meaning-question-type)) — the
+  round just falls back to "Fill in the blank" silently — but this means the
+  "Word meaning" type can end up appearing rarely or not at all with no
+  visible error, which can look like the setting isn't working. If that
+  endpoint stops working entirely, this question type simply stops
+  appearing (fill-in-the-blank is unaffected, since it has no such
+  dependency); there's no automatic notification of that state today beyond
+  the pattern of rarely seeing "Word meaning" questions.
+- **Word-meaning translations aren't curated, and quality isn't verified.**
+  A machine translation of a single word out of context can be wrong,
+  overly literal, or ambiguous (many words have multiple meanings depending
+  on context) — there's no verification that the returned meaning actually
+  matches how the word was used in the sentence it's quizzing.
+- **Score is in-memory only, not persisted.** Reloading the page,
+  navigating away and back, or restarting the browser resets a video's
+  score to 0/0 — there's no history of past quiz performance across
+  sessions. The score is also not per-question-type: cloze and word-meaning
+  answers count toward the same running total.
 - **The direct caption-fetch endpoint sometimes returns nothing for videos
   that do have captions.** Confirmed across multiple unrelated videos and
   caption tracks (auto-generated and not) — YouTube returns HTTP 200 with an
@@ -51,8 +76,9 @@
   If YouTube stops firing it, per-video state wouldn't reset correctly when
   navigating between videos without a full page reload (a manual page
   refresh would still work).
-- **No per-video settings or history.** Interval/options/language are global
-  across all videos; there's no record of past quiz performance.
+- **No per-video settings.** Interval/options/language/question-types are
+  global across all videos (only the score itself, covered above, is
+  per-video).
 - **No custom icon set** — the extension currently uses Chrome's default
   icon. Cosmetic only.
 - **Distractor words are unigrams, not curated by difficulty or part of

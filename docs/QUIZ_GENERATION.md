@@ -1,10 +1,26 @@
 # Quiz Generation
 
-`src/lib/quiz.js` turns a slice of transcript into a multiple-choice
-fill-in-the-blank (cloze) question, entirely offline — no API key, no network
-call beyond the transcript fetch already described in
-[ARCHITECTURE.md](ARCHITECTURE.md). This was chosen over calling out to an
-LLM for question generation for a few reasons:
+The extension asks two kinds of questions, chosen randomly per round from
+whichever types are enabled in settings (default: both):
+
+- **Fill in the blank (cloze)** — entirely offline, described below.
+- **Word meaning** — underlines a word in its sentence and asks the viewer
+  to pick its correct translation/meaning from multiple choice. This one
+  *does* need a network call (there's no way to derive a word's meaning from
+  the transcript alone) — see
+  [Word meaning question type](#word-meaning-question-type) below.
+
+Both types share the same underlying word/sentence selection logic
+(`pickQuizWord` in `src/lib/quiz.js`) — they differ only in what they do
+with the picked word: blank it out (cloze) or look up its meaning
+(definition).
+
+## Why cloze deletion is entirely offline
+
+`generateClozeQuestion` needs no API key and no network call beyond the
+transcript fetch already described in [ARCHITECTURE.md](ARCHITECTURE.md).
+This was chosen over calling out to an LLM for question generation for a
+few reasons:
 
 - **Zero setup.** The extension works the moment it's installed. Requiring an
   API key (and paying per-call for a quiz every 90 seconds of every video)
@@ -16,7 +32,7 @@ LLM for question generation for a few reasons:
 - It's a natural place to extend later — see [LIMITATIONS.md](LIMITATIONS.md)
   for what an LLM-backed version would add.
 
-## Algorithm
+## Fill-in-the-blank algorithm
 
 Given the transcript entries spoken since the last quiz:
 
@@ -55,9 +71,10 @@ Given the transcript entries spoken since the last quiz:
    distractors are shuffled into the option list.
 
 If no sentence in the window yields any candidate word (e.g. the segment is
-music or a very short interjection), `generateQuestion` returns `null` and
-`content.js` skips that interval rather than blocking the video indefinitely
-waiting for a quiz that can't be built.
+music or a very short interjection), `pickQuizWord` (and so
+`generateClozeQuestion`) returns `null` and `content.js` skips that interval
+rather than blocking the video indefinitely waiting for a quiz that can't be
+built.
 
 ## Why not scrape random dictionary words as distractors?
 
@@ -66,3 +83,53 @@ dictionary, keeps the multiple-choice options topically related to what the
 learner is watching, which makes the "wrong" choices plausible instead of
 comically unrelated — the difference between a real comprehension check and
 a word-recognition freebie.
+
+## Word meaning question type
+
+Unlike cloze deletion, there's no way to derive a word's *meaning* from the
+transcript itself — that requires an actual translation/dictionary lookup.
+`content.js` (not `quiz.js`, which stays synchronous and dependency-free)
+handles this:
+
+1. Call the shared `pickQuizWord()` to get a sentence, a target word, and
+   distractor words — the same selection logic the cloze question uses.
+2. Look up the target word's translation into the configured
+   "definition language" (default English), plus a translation of each
+   distractor word, so the wrong answers are other real words' meanings
+   rather than obviously-fake options.
+3. Present the sentence with the target word underlined (not blanked —
+   the viewer needs to see it to define it) and the translated meanings as
+   multiple-choice options.
+
+The lookup uses `translate.googleapis.com`'s unofficial, no-API-key
+"gtx" endpoint (the same one many open-source translation tools rely on).
+It's called from the **background service worker**, not the content
+script: a content script's `fetch()` is subject to the page's CORS policy,
+which would block a cross-origin call to a third party like this, while an
+extension page's `fetch()` is exempt for hosts listed in `host_permissions`.
+`content.js` sends a `TRANSLATE_WORD` runtime message and `background.js`
+performs the actual request (see manifest.json's
+`https://translate.googleapis.com/*` host permission).
+
+**This endpoint is unreliable in practice** — direct testing during
+development got HTTP 429 ("Sorry...", Google's abuse page) from one
+automated environment and HTTP 503 from another, on every query tried,
+regardless of word. It may work better from an ordinary residential browser
+session than it did from those, but it is fundamentally an undocumented API
+with no uptime guarantee. Accordingly:
+
+- Each of the target word + distractor lookups is attempted independently
+  (`Promise.allSettled`, not `Promise.all`) so one failed lookup doesn't
+  sink the whole question if the others succeeded — the question is just
+  built with fewer options.
+- If the target word's own translation fails, or fewer than one distinct
+  distractor comes back, the question type is abandoned for that round and
+  `content.js` falls back to a fill-in-the-blank question instead — the
+  viewer still gets a quiz, just not this type, that round.
+- Successful lookups are cached in memory per video (a word is only
+  translated once even if it recurs as a distractor across multiple
+  rounds); failures are not cached, so a later attempt can retry.
+
+If this endpoint becomes unusable in some deployment context, disabling
+"Word meaning" in the popup's question-type setting falls back to
+fill-in-the-blank only, which has no such dependency.

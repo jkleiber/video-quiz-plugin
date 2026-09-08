@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "description": "Pauses YouTube videos at regular intervals and quizzes you on the transcript to check listening comprehension while learning a language.",
   "permissions": ["storage"],
-  "host_permissions": ["https://www.youtube.com/*"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://translate.googleapis.com/*"
+  ],
   "background": {
     "service_worker": "src/background/background.js"
   },

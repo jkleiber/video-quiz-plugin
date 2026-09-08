@@ -38,6 +38,34 @@
       <input type="text" id="preferredLanguage" placeholder="e.g. es, fr, ja" />
     </label>
 
+    <label class="row">
+      <span>Questions per video</span>
+      <select id="maxQuestions">
+        <option value="0">Unlimited</option>
+        <option value="5">5</option>
+        <option value="10">10</option>
+        <option value="15">15</option>
+        <option value="20">20</option>
+      </select>
+    </label>
+
+    <fieldset class="row">
+      <legend>Question types</legend>
+      <label class="checkbox-row">
+        <input type="checkbox" id="typeCloze" />
+        <span>Fill in the blank</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="typeDefinition" />
+        <span>Word meaning</span>
+      </label>
+    </fieldset>
+
+    <label class="row" id="definitionLanguageRow">
+      <span>Show meanings in (language code)</span>
+      <input type="text" id="definitionLanguage" placeholder="e.g. en" />
+    </label>
+
     <button id="save">Save</button>
 
     <div id="status" class="status"></div>
