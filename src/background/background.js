@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS = {
   intervalSeconds: 90,
   numOptions: 4,
   preferredLanguage: "",
-  maxQuestions: 0,
+  questionsPerSession: 1,
   questionTypes: ["cloze", "definition"],
   definitionLanguage: "en",
 };

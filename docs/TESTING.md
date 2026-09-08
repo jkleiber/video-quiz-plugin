@@ -78,11 +78,14 @@ as a Chrome extension). Worth checking by hand:
    unverified live. If it never succeeds even from a normal browser, the
    extension should still work fine (silent fallback to cloze), just never
    actually show a "Word meaning" question.
-5. **Score tracking and session limits**: answering several questions and
+5. **Score tracking and quiz sessions**: answering several questions and
    confirming the running score in the feedback line and popup match;
-   setting "Questions per video" to a small number (e.g. 5) and confirming
-   quizzing stops and a summary appears after the 5th; confirming a summary
-   also appears when a (short, unlimited-cap) video reaches its natural end.
+   setting "Questions per pause" to e.g. 3 and confirming exactly 3
+   questions are asked back-to-back per pause (video stays paused the whole
+   time, button reads "Next question" then "Continue video" on the last
+   one) while "Quiz interval" still controls how often a pause happens at
+   all; confirming a final summary appears when a (short) video reaches its
+   natural end.
 6. **Popup's question-type checkboxes**: confirming at least one always
    stays checked, and that the "Show meanings in" field hides/shows based
    on the "Word meaning" checkbox.

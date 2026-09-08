@@ -31,9 +31,13 @@
      artifacts. Leave blank to let the extension pick automatically (it
      prefers a human-written track over an auto-generated one when both
      exist, no translation attempted).
-   - **Questions per video** — cap on how many quizzes are asked per video
-     (5/10/15/20, or Unlimited). Once reached, quizzing stops for the rest
-     of that video and a score summary is shown.
+   - **Questions per pause** — how many questions are asked back-to-back
+     each time the video pauses (1-5). The **Quiz interval** setting above
+     still controls how often that pause happens; this only controls how
+     many questions you get during each one. If the extension runs out of
+     quizzable material partway through (e.g. a short interval didn't have
+     enough spoken content for 5 distinct questions), that pause just ends
+     early with fewer.
    - **Question types** — enable "Fill in the blank", "Word meaning", or
      both (at least one stays checked; unchecking the last one re-checks
      it). When both are on, each round randomly picks one. "Word meaning"
@@ -57,11 +61,13 @@
    with a word underlined and multiple-choice translations of its meaning.
 5. Pick an answer. The correct answer is highlighted (green) and, if you
    were wrong, your pick is highlighted red; the feedback line also shows
-   your running score for the video. Click **Continue video** to resume
-   playback — the interval timer restarts from that point.
-6. When you reach the end of the video, or the "Questions per video" cap
-   (whichever comes first), a **quiz session complete** summary shows your
-   final score and percentage for that video.
+   your running score for the video. If "Questions per pause" is more than
+   1, click **Next question** to move to the next one in this pause (the
+   video stays paused for all of them); on the last question of the pause,
+   the button reads **Continue video** and resumes playback — the interval
+   timer restarts from that point.
+6. When you reach the end of the video, a **quiz session complete** summary
+   shows your final score and percentage for the whole video.
 
 ## If the popup says captions couldn't be fetched
 

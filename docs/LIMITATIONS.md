@@ -25,6 +25,11 @@
   score to 0/0 — there's no history of past quiz performance across
   sessions. The score is also not per-question-type: cloze and word-meaning
   answers count toward the same running total.
+- **Multiple questions in one pause can repeat the same word or sentence.**
+  Each question in a session is picked independently (no memory of what
+  was already asked that pause), so with a short quiz interval and a high
+  "Questions per pause" setting, the same word/sentence combination could
+  come up twice in one pause.
 - **The direct caption-fetch endpoint sometimes returns nothing for videos
   that do have captions.** Confirmed across multiple unrelated videos and
   caption tracks (auto-generated and not) — YouTube returns HTTP 200 with an

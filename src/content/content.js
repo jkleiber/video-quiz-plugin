@@ -11,7 +11,7 @@
     intervalSeconds: 90,
     numOptions: 4,
     preferredLanguage: "", // empty = use first available caption track
-    maxQuestions: 0, // 0 = unlimited per video
+    questionsPerSession: 1, // 1-5 questions asked back-to-back per pause
     questionTypes: ["cloze", "definition"],
     definitionLanguage: "en", // language word-meaning answers are shown in
   };
@@ -249,7 +249,7 @@
 
   function onVideoEnded() {
     if (state.score.total > 0 && !state.summaryShown) {
-      showSessionSummary("ended");
+      showSessionSummary();
     }
   }
 
@@ -260,9 +260,6 @@
     if (state.quizActive || state.quizPending) return;
     if (state.transcriptStatus !== "ready") return;
     if (video.currentTime < 5) return;
-
-    const cap = state.settings.maxQuestions;
-    if (cap > 0 && state.score.total >= cap) return; // session's question limit already reached
 
     const elapsedSinceLastQuiz = video.currentTime - state.lastQuizVideoTime;
     if (elapsedSinceLastQuiz < state.settings.intervalSeconds) return;
@@ -279,21 +276,41 @@
       return;
     }
 
+    runQuizSession(segment);
+  }
+
+  function clampQuestionsPerSession(n) {
+    n = Math.round(Number(n) || 1);
+    return Math.min(5, Math.max(1, n));
+  }
+
+  // Runs one pause: builds and shows up to `questionsPerSession` questions
+  // back-to-back from the same played-window segment, pausing the video
+  // once at the start and resuming once at the end (not per question).
+  async function runQuizSession(segment) {
     state.quizPending = true;
-    buildQuestion(segment)
-      .then((question) => {
-        if (!question) {
-          // The played window had transcript text but nothing quizzable in
-          // it (e.g. only filler words); don't stall waiting for a quiz
-          // that can't be built from that window.
-          state.lastQuizVideoTime = video.currentTime;
-          return;
-        }
-        showQuiz(question);
-      })
-      .finally(() => {
-        state.quizPending = false;
-      });
+    const sessionSize = clampQuestionsPerSession(state.settings.questionsPerSession);
+    let paused = false;
+
+    for (let i = 0; i < sessionSize; i++) {
+      const question = await buildQuestion(segment);
+      if (!question) {
+        // Ran out of quizzable material in this window — stop the session
+        // here rather than stalling on a question that can't be built.
+        break;
+      }
+      if (!paused) {
+        state.quizActive = true;
+        state.video.pause();
+        paused = true;
+      }
+      await showQuizQuestion(question, i + 1, sessionSize);
+    }
+
+    state.quizPending = false;
+    state.quizActive = false;
+    state.lastQuizVideoTime = state.video.currentTime;
+    if (paused) state.video.play();
   }
 
   // ---------- question generation (both types) ----------
@@ -421,88 +438,87 @@
     container.appendChild(document.createTextNode(sentence.slice(match.index + match.text.length)));
   }
 
-  function showQuiz(question) {
-    state.quizActive = true;
-    state.video.pause();
+  // Shows one question and resolves once the viewer clicks past it.
+  // Doesn't touch video playback itself — runQuizSession pauses once before
+  // the first question in a session and resumes once after the last.
+  function showQuizQuestion(question, questionNumber, totalQuestions) {
+    return new Promise((resolve) => {
+      const container = findPlayerContainer();
+      const overlay = document.createElement("div");
+      overlay.className = "vqp-overlay";
+      overlay.innerHTML = `
+        <div class="vqp-card">
+          <div class="vqp-progress" hidden></div>
+          <div class="vqp-title"></div>
+          <div class="vqp-sentence"></div>
+          <div class="vqp-options"></div>
+          <div class="vqp-feedback" hidden></div>
+          <button class="vqp-continue" hidden></button>
+        </div>
+      `;
+      overlay.querySelector(".vqp-title").textContent =
+        question.type === "definition" ? "What does the underlined word mean?" : "Comprehension check";
 
-    const container = findPlayerContainer();
-    const overlay = document.createElement("div");
-    overlay.className = "vqp-overlay";
-    overlay.innerHTML = `
-      <div class="vqp-card">
-        <div class="vqp-title"></div>
-        <div class="vqp-sentence"></div>
-        <div class="vqp-options"></div>
-        <div class="vqp-feedback" hidden></div>
-        <button class="vqp-continue" hidden>Continue video</button>
-      </div>
-    `;
-    overlay.querySelector(".vqp-title").textContent =
-      question.type === "definition" ? "What does the underlined word mean?" : "Comprehension check";
+      if (totalQuestions > 1) {
+        const progressEl = overlay.querySelector(".vqp-progress");
+        progressEl.textContent = `Question ${questionNumber} of ${totalQuestions}`;
+        progressEl.hidden = false;
+      }
 
-    const sentenceEl = overlay.querySelector(".vqp-sentence");
-    if (question.type === "definition") {
-      renderSentenceWithUnderline(sentenceEl, question.sentence, question.word);
-    } else {
-      sentenceEl.textContent = question.sentence;
-    }
+      const sentenceEl = overlay.querySelector(".vqp-sentence");
+      if (question.type === "definition") {
+        renderSentenceWithUnderline(sentenceEl, question.sentence, question.word);
+      } else {
+        sentenceEl.textContent = question.sentence;
+      }
 
-    const optionsEl = overlay.querySelector(".vqp-options");
-    const feedbackEl = overlay.querySelector(".vqp-feedback");
-    const continueBtn = overlay.querySelector(".vqp-continue");
+      const optionsEl = overlay.querySelector(".vqp-options");
+      const feedbackEl = overlay.querySelector(".vqp-feedback");
+      const continueBtn = overlay.querySelector(".vqp-continue");
+      const isLastQuestion = questionNumber >= totalQuestions;
 
-    question.options.forEach((option) => {
-      const btn = document.createElement("button");
-      btn.className = "vqp-option";
-      btn.textContent = option;
-      btn.addEventListener("click", () => {
-        if (btn.disabled) return;
-        Array.from(optionsEl.children).forEach((b) => (b.disabled = true));
+      question.options.forEach((option) => {
+        const btn = document.createElement("button");
+        btn.className = "vqp-option";
+        btn.textContent = option;
+        btn.addEventListener("click", () => {
+          if (btn.disabled) return;
+          Array.from(optionsEl.children).forEach((b) => (b.disabled = true));
 
-        const isCorrect = option === question.correctAnswer;
-        state.score.total += 1;
-        if (isCorrect) state.score.correct += 1;
+          const isCorrect = option === question.correctAnswer;
+          state.score.total += 1;
+          if (isCorrect) state.score.correct += 1;
 
-        btn.classList.add(isCorrect ? "vqp-correct" : "vqp-incorrect");
-        if (!isCorrect) {
-          Array.from(optionsEl.children)
-            .find((b) => b.textContent === question.correctAnswer)
-            ?.classList.add("vqp-correct");
-        }
+          btn.classList.add(isCorrect ? "vqp-correct" : "vqp-incorrect");
+          if (!isCorrect) {
+            Array.from(optionsEl.children)
+              .find((b) => b.textContent === question.correctAnswer)
+              ?.classList.add("vqp-correct");
+          }
 
-        feedbackEl.textContent =
-          (isCorrect ? "Correct!" : `Not quite — the answer was "${question.correctAnswer}".`) +
-          ` Score: ${state.score.correct}/${state.score.total}`;
-        feedbackEl.hidden = false;
-        continueBtn.hidden = false;
-        continueBtn.focus();
+          feedbackEl.textContent =
+            (isCorrect ? "Correct!" : `Not quite — the answer was "${question.correctAnswer}".`) +
+            ` Score: ${state.score.correct}/${state.score.total}`;
+          feedbackEl.hidden = false;
+          continueBtn.textContent = isLastQuestion ? "Continue video" : "Next question";
+          continueBtn.hidden = false;
+          continueBtn.focus();
+        });
+        optionsEl.appendChild(btn);
       });
-      optionsEl.appendChild(btn);
-    });
 
-    continueBtn.addEventListener("click", () => {
-      closeQuiz(overlay);
-    });
+      continueBtn.addEventListener("click", () => {
+        overlay.remove();
+        state.overlayEl = null;
+        resolve();
+      });
 
-    container.appendChild(overlay);
-    state.overlayEl = overlay;
+      container.appendChild(overlay);
+      state.overlayEl = overlay;
+    });
   }
 
-  function closeQuiz(overlay) {
-    overlay.remove();
-    state.overlayEl = null;
-    state.quizActive = false;
-    state.lastQuizVideoTime = state.video.currentTime;
-
-    const cap = state.settings.maxQuestions;
-    if (cap > 0 && state.score.total >= cap && !state.summaryShown) {
-      showSessionSummary("cap"); // stays paused until the summary is closed
-    } else {
-      state.video.play();
-    }
-  }
-
-  function showSessionSummary(reason) {
+  function showSessionSummary() {
     state.summaryShown = true;
     const container = findPlayerContainer();
     const pct = state.score.total ? Math.round((state.score.correct / state.score.total) * 100) : 0;
@@ -513,20 +529,13 @@
       <div class="vqp-card">
         <div class="vqp-title">Quiz session complete</div>
         <div class="vqp-summary-score"></div>
-        <div class="vqp-summary-reason"></div>
+        <div class="vqp-summary-reason">You've reached the end of the video.</div>
         <button class="vqp-continue">Close</button>
       </div>
     `;
     overlay.querySelector(".vqp-summary-score").textContent =
       `${state.score.correct} / ${state.score.total} correct (${pct}%)`;
-    overlay.querySelector(".vqp-summary-reason").textContent =
-      reason === "cap"
-        ? "You've reached this session's question limit."
-        : "You've reached the end of the video.";
-    overlay.querySelector(".vqp-continue").addEventListener("click", () => {
-      overlay.remove();
-      if (reason === "cap") state.video.play(); // was paused so the viewer could read the summary
-    });
+    overlay.querySelector(".vqp-continue").addEventListener("click", () => overlay.remove());
 
     container.appendChild(overlay);
   }

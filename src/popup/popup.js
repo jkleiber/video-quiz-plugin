@@ -3,7 +3,7 @@ const DEFAULT_SETTINGS = {
   intervalSeconds: 90,
   numOptions: 4,
   preferredLanguage: "",
-  maxQuestions: 0,
+  questionsPerSession: 1,
   questionTypes: ["cloze", "definition"],
   definitionLanguage: "en",
 };
@@ -13,7 +13,7 @@ const el = {
   intervalSeconds: document.getElementById("intervalSeconds"),
   numOptions: document.getElementById("numOptions"),
   preferredLanguage: document.getElementById("preferredLanguage"),
-  maxQuestions: document.getElementById("maxQuestions"),
+  questionsPerSession: document.getElementById("questionsPerSession"),
   typeCloze: document.getElementById("typeCloze"),
   typeDefinition: document.getElementById("typeDefinition"),
   definitionLanguage: document.getElementById("definitionLanguage"),
@@ -41,7 +41,7 @@ chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
   el.intervalSeconds.value = String(settings.intervalSeconds);
   el.numOptions.value = String(settings.numOptions);
   el.preferredLanguage.value = settings.preferredLanguage;
-  el.maxQuestions.value = String(settings.maxQuestions);
+  el.questionsPerSession.value = String(settings.questionsPerSession);
   el.typeCloze.checked = settings.questionTypes.includes("cloze");
   el.typeDefinition.checked = settings.questionTypes.includes("definition");
   el.definitionLanguage.value = settings.definitionLanguage;
@@ -58,7 +58,7 @@ el.save.addEventListener("click", () => {
     intervalSeconds: Number(el.intervalSeconds.value),
     numOptions: Number(el.numOptions.value),
     preferredLanguage: el.preferredLanguage.value.trim(),
-    maxQuestions: Number(el.maxQuestions.value),
+    questionsPerSession: Number(el.questionsPerSession.value),
     questionTypes: questionTypes.length ? questionTypes : ["cloze"],
     definitionLanguage: el.definitionLanguage.value.trim() || "en",
   };

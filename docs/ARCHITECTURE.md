@@ -56,19 +56,22 @@ to extension APIs) and never fetches anything itself.
    each tick it checks how much video time has elapsed since the last quiz;
    once that exceeds the configured interval, it slices the transcript
    entries spoken during that window and hands them to `quiz.js`.
-4. `content.js` picks a question type at random from the enabled ones
-   (`settings.questionTypes`) and builds it — either
-   `VideoQuizGen.generateClozeQuestion` directly, or (for "word meaning")
-   `VideoQuizGen.pickQuizWord` followed by a translation lookup that falls
-   back to a cloze question on failure. See
-   [QUIZ_GENERATION.md](QUIZ_GENERATION.md) for both.
-5. `content.js` pauses the video, renders the question as an absolutely
-   positioned overlay inside the player container, and waits for an answer.
-   Selecting an option updates the running score, reveals correctness and
-   the right answer; a "Continue video" button resumes playback and resets
-   the interval timer. If the configured per-video question limit is now
-   reached, a session summary is shown instead of resuming immediately (see
-   "Scoring and session limits" below).
+4. `content.js` pauses the video once and runs a **quiz session**
+   (`runQuizSession`): up to `settings.questionsPerSession` (1-5) questions
+   asked back-to-back from that same played-window segment, each built by
+   picking a question type at random from the enabled ones
+   (`settings.questionTypes`) — either `VideoQuizGen.generateClozeQuestion`
+   directly, or (for "word meaning") `VideoQuizGen.pickQuizWord` followed by
+   a translation lookup that falls back to a cloze question on failure. See
+   [QUIZ_GENERATION.md](QUIZ_GENERATION.md) for both. If the window runs out
+   of quizzable material partway through, the session just ends early with
+   fewer questions rather than stalling.
+5. Each question renders as an absolutely positioned overlay inside the
+   player container; selecting an option updates the running score and
+   reveals correctness. The button reads "Next question" until the last
+   question in the session, then "Continue video" — only that last click
+   actually resumes playback and resets the interval timer (the video stays
+   paused for the whole session, not once per question).
 
 ## Translated captions
 
@@ -134,34 +137,37 @@ This fallback is deliberately last-resort and manual-assist rather than
 automatic, since it depends on markup that could change and on the viewer
 taking one extra action — see [LIMITATIONS.md](LIMITATIONS.md).
 
-## Scoring and session limits
+## Scoring and quiz sessions
 
 `state.score = {correct, total}` is incremented in the option-click handler
-in `showQuiz()`, for either question type identically (both resolve to a
-`correctAnswer` string to compare against). It's per-video, in-memory only —
-see [LIMITATIONS.md](LIMITATIONS.md) for what that means across reloads.
+in `showQuizQuestion()`, for either question type identically (both resolve
+to a `correctAnswer` string to compare against). It's per-video, in-memory
+only, and accumulates across every pause in that video (not reset per
+session) — see [LIMITATIONS.md](LIMITATIONS.md) for what that means across
+reloads.
 
 - The running score is appended to the feedback line after every question
   ("Correct! Score: 4/5") and shown in the popup status whenever at least
   one question has been asked.
-- `settings.maxQuestions` (0 = unlimited) caps how many questions are asked
-  per video. `onTimeUpdate` checks `score.total >= maxQuestions` before
-  even trying to build a question, so once the cap is hit, quizzing simply
-  stops for the rest of that video — playback is otherwise unaffected.
-- A **session summary** overlay (`showSessionSummary()`) reports the final
-  score in two cases: when the cap is reached (right after the capping
-  question's "Continue" is clicked — video stays paused until the summary
-  is dismissed) or when the video's native `ended` event fires (whichever
-  comes first; a `summaryShown` flag stops it from firing twice for the
-  same video).
+- **"Session" here means one pause**, not the whole video:
+  `settings.questionsPerSession` (1-5, clamped by `clampQuestionsPerSession`)
+  controls how many questions `runQuizSession` asks back-to-back each time
+  the configured interval elapses — it does not cap the video's total
+  question count. `settings.intervalSeconds` still controls how often a
+  pause happens at all, unchanged.
+- A separate **final summary** overlay (`showSessionSummary()`) reports the
+  video's overall score when its native `ended` event fires (a
+  `summaryShown` flag stops it firing more than once per video). This is
+  the only summary trigger — there's no longer a total-questions cap to
+  reach early.
 
 ## Settings and state
 
 - **Settings** (`enabled`, `intervalSeconds`, `numOptions`,
-  `preferredLanguage`, `maxQuestions`, `questionTypes`, `definitionLanguage`)
-  live in `chrome.storage.sync`, edited from the popup, and are read
-  reactively via `chrome.storage.onChanged` so a change applies immediately
-  without reloading the page.
+  `preferredLanguage`, `questionsPerSession`, `questionTypes`,
+  `definitionLanguage`) live in `chrome.storage.sync`, edited from the
+  popup, and are read reactively via `chrome.storage.onChanged` so a change
+  applies immediately without reloading the page.
 - **Per-video state** (transcript, last quiz time, quiz-active flag, score,
   translation cache) lives in memory inside `content.js`. YouTube is a
   single-page app — navigating to a new video doesn't reload the page or
