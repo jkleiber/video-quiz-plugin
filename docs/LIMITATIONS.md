@@ -1,7 +1,16 @@
 # Known Limitations
 
-- **Requires captions.** Videos with no caption track (auto-generated or
-  otherwise) can't be quizzed — there's no transcript to draw questions from.
+- **Requires captions.** Videos with no caption track at all (not even
+  auto-generated, and not offered as a machine-translation target — see
+  [ARCHITECTURE.md](ARCHITECTURE.md#translated-captions)) can't be quizzed —
+  there's no transcript to draw questions from. Some videos also have
+  subtitles burned directly into the video image ("hardcoded" subs); those
+  aren't a caption track at all and are invisible to this extension.
+- **Machine-translated transcripts inherit translation errors** on top of
+  whatever transcription errors were already in the base track (worse still
+  if the base track is itself auto-generated), so quiz sentences/answers for
+  a translated language can occasionally be wrong or awkward in ways a
+  native track wouldn't be.
 - **Question quality tracks caption quality.** Auto-generated captions have
   no punctuation and occasional transcription errors, which can produce
   slightly awkward sentence chunks (handled via the fixed-size fallback

@@ -18,6 +18,7 @@
     videoId: null,
     transcript: null, // [{start, end, text}]
     transcriptLanguage: null,
+    transcriptTranslated: false, // true if machine-translated via &tlang=
     transcriptStatus: "idle", // idle | loading | ready | no-captions | error
     video: null,
     lastQuizVideoTime: 0,
@@ -51,6 +52,7 @@
         onVideoPage: !!state.video,
         transcriptStatus: state.transcriptStatus,
         transcriptLanguage: state.transcriptLanguage,
+        transcriptTranslated: state.transcriptTranslated,
         numSegments: state.transcript ? state.transcript.length : 0,
         enabled: state.settings.enabled,
       });
@@ -64,10 +66,10 @@
     if (event.source !== window) return;
     const data = event.data;
     if (!data || data.source !== SOURCE || data.type !== "CAPTION_TRACKS") return;
-    handleCaptionTracks(data.videoId, data.tracks);
+    handleCaptionTracks(data.videoId, data.tracks, data.translationLanguages);
   });
 
-  function handleCaptionTracks(videoId, tracks) {
+  function handleCaptionTracks(videoId, tracks, translationLanguages) {
     if (!videoId || state.transcript || state.transcriptStatus === "loading") {
       // Already have (or are fetching) a transcript for the current video.
       if (videoId && videoId !== state.videoId) {
@@ -84,16 +86,26 @@
       return;
     }
 
-    const track =
-      tracks.find((t) => t.languageCode === state.settings.preferredLanguage) ||
-      tracks.find((t) => t.kind !== "asr") ||
-      tracks[0];
+    const preferred = state.settings.preferredLanguage;
+    const nativeMatch = preferred && tracks.find((t) => t.languageCode === preferred);
+
+    let track = nativeMatch || tracks.find((t) => t.kind !== "asr") || tracks[0];
+    let tlang = null;
+
+    // No native track in the preferred language — fall back to asking
+    // YouTube to machine-translate an existing track (e.g. auto-generated
+    // captions in the spoken language) into it, if it offers that language.
+    if (!nativeMatch && preferred && translationLanguages && translationLanguages.includes(preferred)) {
+      track = tracks.find((t) => t.kind !== "asr") || tracks[0];
+      tlang = preferred;
+    }
 
     state.transcriptStatus = "loading";
-    fetchTranscript(track.baseUrl)
+    fetchTranscript(track.baseUrl, tlang)
       .then((entries) => {
         state.transcript = entries;
-        state.transcriptLanguage = track.languageCode;
+        state.transcriptLanguage = tlang || track.languageCode;
+        state.transcriptTranslated = !!tlang;
         state.transcriptStatus = entries.length ? "ready" : "no-captions";
       })
       .catch(() => {
@@ -101,8 +113,9 @@
       });
   }
 
-  async function fetchTranscript(baseUrl) {
-    const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "fmt=json3";
+  async function fetchTranscript(baseUrl, tlang) {
+    let url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "fmt=json3";
+    if (tlang) url += "&tlang=" + encodeURIComponent(tlang);
     const res = await fetch(url, { credentials: "include" });
     if (!res.ok) throw new Error("transcript fetch failed: " + res.status);
     const data = await res.json();
@@ -243,6 +256,7 @@
     state.videoId = newVideoId;
     state.transcript = null;
     state.transcriptLanguage = null;
+    state.transcriptTranslated = false;
     state.transcriptStatus = "idle";
     state.lastQuizVideoTime = 0;
     if (state.overlayEl) {

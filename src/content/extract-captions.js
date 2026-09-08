@@ -23,6 +23,12 @@
     const renderer =
       pr && pr.captions && pr.captions.playerCaptionsTracklistRenderer;
     const tracks = renderer && renderer.captionTracks ? renderer.captionTracks : null;
+    // Languages YouTube can machine-translate any existing track into on the
+    // fly (via the timedtext endpoint's &tlang= param), even when no native
+    // track exists in that language.
+    const translationLanguages = renderer && renderer.translationLanguages
+      ? renderer.translationLanguages.map((l) => l.languageCode)
+      : null;
     const videoId = pr && pr.videoDetails && pr.videoDetails.videoId;
 
     window.postMessage(
@@ -38,6 +44,7 @@
               kind: t.kind || null, // "asr" means auto-generated
             }))
           : null,
+        translationLanguages,
       },
       "*"
     );

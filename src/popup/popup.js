@@ -49,7 +49,7 @@ function renderStatus(response) {
       lines.push(
         `Transcript loaded (${response.numSegments} segments${
           response.transcriptLanguage ? ", lang: " + response.transcriptLanguage : ""
-        }).`
+        }${response.transcriptTranslated ? ", machine-translated" : ""}).`
       );
       break;
     case "loading":

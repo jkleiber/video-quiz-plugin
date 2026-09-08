@@ -36,12 +36,20 @@ to extension APIs) and never fetches anything itself.
 ## Data flow
 
 1. `extract-captions.js` reads `ytInitialPlayerResponse.captions...captionTracks`
-   and posts `{type: "CAPTION_TRACKS", videoId, tracks}` to the window.
-2. `content.js` receives that message, picks a track (preferring the user's
-   configured language, then non-auto-generated captions, then whatever's
-   first), and fetches `<baseUrl>&fmt=json3` — YouTube's own timedtext
-   endpoint — to get the transcript as JSON: a list of `{start, end, text}`
-   entries.
+   (and the sibling `translationLanguages` list — see below) and posts
+   `{type: "CAPTION_TRACKS", videoId, tracks, translationLanguages}` to the
+   window.
+2. `content.js` receives that message and picks a track:
+   - a **native track in the configured language**, if one exists;
+   - otherwise, if the configured language isn't a native track but *is* in
+     `translationLanguages`, a non-auto-generated (or else auto-generated)
+     base track, fetched with `&tlang=<code>` appended so YouTube
+     machine-translates it on the fly (see "Translated captions" below);
+   - otherwise, whatever non-auto-generated track exists, or the first track.
+
+   It then fetches `<baseUrl>&fmt=json3[&tlang=<code>]` — YouTube's own
+   timedtext endpoint — to get the transcript as JSON: a list of
+   `{start, end, text}` entries.
 3. `content.js` attaches a `timeupdate` listener to the `<video>` element. On
    each tick it checks how much video time has elapsed since the last quiz;
    once that exceeds the configured interval, it slices the transcript
@@ -52,6 +60,24 @@ to extension APIs) and never fetches anything itself.
    positioned overlay inside the player container, and waits for an answer.
    Selecting an option reveals correctness and the right answer; a
    "Continue video" button resumes playback and resets the interval timer.
+
+## Translated captions
+
+Many videos have no native caption track in a learner's target language, but
+YouTube can machine-translate an existing track into one on request — this
+is the same "Auto-translate" feature exposed in the YouTube UI's subtitle
+menu. `playerCaptionsTracklistRenderer.translationLanguages` lists every
+language code YouTube offers this for; appending `&tlang=<code>` to any
+track's timedtext URL returns that track translated into `<code>`, generated
+server-side by Google Translate.
+
+`content.js` uses this only as a fallback (see step 2 above) — a native
+track in the configured language is always preferred, since a
+professionally- or community-written track is far more accurate than a
+machine translation of (often already imperfect) auto-generated captions.
+The popup surfaces this by appending "machine-translated" to the status line
+when it happens, so it's clear the transcript — and therefore the quiz
+sentences — may contain translation artifacts.
 
 ## Settings and state
 

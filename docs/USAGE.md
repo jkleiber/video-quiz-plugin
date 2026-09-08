@@ -20,12 +20,20 @@
    - **Quiz interval** — how much video playback time passes between quizzes
      (30s to 5 minutes).
    - **Choices per question** — 3, 4, or 5 multiple-choice options.
-   - **Caption language code** — optionally force a specific caption track
-     (e.g. `es`, `fr`, `ja`) when a video has more than one. Leave blank to
-     let the extension pick automatically (it prefers a human-written track
-     over an auto-generated one when both exist).
+   - **Caption language code** — set this to your target language (e.g.
+     `ko`, `es`, `ja`) to quiz yourself in it. If the video has a native
+     caption track in that language, it's used directly. If not, but
+     YouTube offers to auto-translate the video's captions into that
+     language (the same option available in YouTube's own subtitle menu),
+     the extension requests a machine-translated transcript in that
+     language instead — quiz sentences will then be translations, not the
+     original spoken/written text, so expect occasional translation
+     artifacts. Leave blank to let the extension pick automatically (it
+     prefers a human-written track over an auto-generated one when both
+     exist, no translation attempted).
    - The status line at the bottom reports whether a transcript was found
-     for the current video and how many segments it has.
+     for the current video, how many segments it has, and whether it's a
+     machine-translated one.
 3. Click **Save**. Settings apply immediately, without reloading the page.
 4. Play the video normally. When the configured interval elapses, the video
    pauses and a question card appears over the player: a sentence from what
